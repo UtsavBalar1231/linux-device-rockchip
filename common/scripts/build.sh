@@ -653,12 +653,13 @@ main()
 	# The real kernel version: 4.4/4.19/5.10/6.1, etc.
 	export RK_KERNEL_VERSION_RAW=$(kernel_version_raw)
 	export RK_KERNEL_VERSION="$(kernel_version)"
+	export LIB_MODULES_DIR="$RK_SDK_DIR/debian/lib_modules"
 
 	# Handle special commands
 	case "$OPTIONS" in
 		cleanall)
 			run_build_hooks clean
-			rm -rf "$RK_OUTDIR" "$RK_SDK_DIR/rockdev"
+			sudo rm -rf "$RK_OUTDIR" "$RK_SDK_DIR/rockdev"
 			finish_build cleanall
 			exit 0 ;;
 		clean:*)
