@@ -136,18 +136,21 @@ build_debian()
 	message "=========================================="
 
 	cd debian
-	if [ ! -f linaro-$RK_DEBIAN_VERSION-alip-*.tar.gz ]; then
-		RELEASE=$RK_DEBIAN_VERSION TARGET=desktop ARCH=$ARCH \
-			./mk-base-debian.sh
-		ln -sf linaro-$RK_DEBIAN_VERSION-alip-*.tar.gz \
-			linaro-$RK_DEBIAN_VERSION-$ARCH.tar.gz
-	fi
 
-	VERSION=debug ARCH=$ARCH ./mk-rootfs-$RK_DEBIAN_VERSION.sh
-	./mk-image.sh
+	if [ ! -f $PWD/linaro-rootfs.img ]; then
+		if [ ! -f linaro-$RK_DEBIAN_VERSION-alip-*.tar.gz ]; then
+			RELEASE=$RK_DEBIAN_VERSION TARGET=desktop ARCH=$ARCH \
+				./mk-base-debian.sh
+			ln -sf linaro-$RK_DEBIAN_VERSION-alip-*.tar.gz \
+				linaro-$RK_DEBIAN_VERSION-$ARCH.tar.gz
+		fi
 
-	if ! [ -r "$RK_LOG_DIR/post-rootfs.log" ]; then
-		warning "Building without post-rootfs stage!"
+		VERSION=debug ARCH=$ARCH ./mk-rootfs-$RK_DEBIAN_VERSION.sh
+		./mk-image.sh
+
+		if ! [ -r "$RK_LOG_DIR/post-rootfs.log" ]; then
+			warning "Building without post-rootfs stage!"
+		fi
 	fi
 
 	ln -rsf "$PWD/linaro-rootfs.img" "$IMAGE_DIR/rootfs.ext4"
@@ -173,6 +176,7 @@ clean_hook()
 {
 	rm -rf yocto/build/tmp yocto/build/*cache
 	rm -rf debian/binary
+	rm -rf $LIB_MODULES_DIR
 
 	if check_config RK_BUILDROOT &>/dev/null; then
 		rm -rf buildroot/output/$RK_BUILDROOT_CFG
