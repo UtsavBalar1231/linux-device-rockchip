@@ -2,8 +2,7 @@
 
 KERNELS=$(ls | grep kernel- || true)
 
-make_kernel_config()
-{
+make_kernel_config() {
 	if [ "$RK_CHIP" = "$RK_CHIP_FAMILY" ]; then
 		POSSIBLE_FRAGMENTS="$RK_CHIP"
 	elif echo "$RK_CHIP" | grep -qE "[0-9][a-z]$"; then
@@ -12,7 +11,7 @@ make_kernel_config()
 		POSSIBLE_FRAGMENTS="$RK_CHIP_FAMILY $RK_CHIP"
 	fi
 
-	POSSIBLE_FRAGMENTS="$(echo "$POSSIBLE_FRAGMENTS" | xargs -n 1 | uniq | \
+	POSSIBLE_FRAGMENTS="$(echo "$POSSIBLE_FRAGMENTS" | xargs -n 1 | uniq |
 		sed "s/\(.*\)/\1.config \1_linux.config/")"
 
 	unset BASIC_CFG_FRAGMENTS
@@ -27,8 +26,7 @@ make_kernel_config()
 		$RK_KERNEL_CFG_FRAGMENTS
 }
 
-do_build()
-{
+do_build() {
 	check_config RK_KERNEL RK_KERNEL_CFG || false
 
 	if [ "$DRY_RUN" ]; then
@@ -46,54 +44,62 @@ do_build()
 	fi
 
 	case "$1" in
-		kernel-config | kconfig)
-			KERNEL_CONFIG_DIR="kernel/arch/$RK_KERNEL_ARCH/configs"
-			run_command $KMAKE menuconfig
-			run_command $KMAKE savedefconfig
-			run_command mv kernel/defconfig \
-				"$KERNEL_CONFIG_DIR/$RK_KERNEL_CFG"
-			;;
-		kernel*)
-			run_command $KMAKE "$RK_KERNEL_DTS_NAME.img"
+	kernel-config | kconfig)
+		KERNEL_CONFIG_DIR="kernel/arch/$RK_KERNEL_ARCH/configs"
+		run_command $KMAKE menuconfig
+		run_command $KMAKE savedefconfig
+		run_command mv kernel/defconfig \
+			"$KERNEL_CONFIG_DIR/$RK_KERNEL_CFG"
+		;;
+	kernel*)
+		run_command $KMAKE "$RK_KERNEL_DTS_NAME.img"
+		run_command $KMAKE dtbs
 
-			# The FIT image for initrd would be packed in rootfs stage
-			if [ -n "$RK_BOOT_FIT_ITS" ] && \
-				[ -z "$RK_ROOTFS_INITRD" ]; then
-				run_command "$RK_SCRIPTS_DIR/mk-fitimage.sh" \
-					"kernel/$RK_BOOT_IMG" \
-					"$RK_BOOT_FIT_ITS" \
-					"$RK_KERNEL_IMG" "$RK_KERNEL_DTB" \
-					"kernel/resource.img"
+		# The FIT image for initrd would be packed in rootfs stage
+		if [ -n "$RK_BOOT_FIT_ITS" ] &&
+			[ -z "$RK_ROOTFS_INITRD" ]; then
+			run_command "$RK_SCRIPTS_DIR/mk-fitimage.sh" \
+				"kernel/$RK_BOOT_IMG" \
+				"$RK_BOOT_FIT_ITS" \
+				"$RK_KERNEL_IMG" "$RK_KERNEL_DTB" \
+				"kernel/resource.img"
+		fi
+
+		if [ "$RK_SECURITY" ]; then
+			if [ "$RK_SECURITY_CHECK_BASE" ]; then
+				run_command \
+					"$RK_SCRIPTS_DIR/mk-security.sh" \
+					sign boot "kernel/$RK_BOOT_IMG" \
+					$RK_FIRMWARE_DIR/
 			fi
+		else
+			run_command ln -rsf "kernel/$RK_BOOT_IMG" \
+				"$RK_FIRMWARE_DIR/boot.img"
+		fi
 
-			if [ "$RK_SECURITY" ]; then
-				if [ "$RK_SECURITY_CHECK_BASE" ]; then
-					run_command \
-						"$RK_SCRIPTS_DIR/mk-security.sh" \
-						sign boot "kernel/$RK_BOOT_IMG" \
-						$RK_FIRMWARE_DIR/
-				fi
-			else
-				run_command ln -rsf "kernel/$RK_BOOT_IMG" \
-					"$RK_FIRMWARE_DIR/boot.img"
-			fi
+		[ -z "$DRY_RUN" ] || return 0
 
-			[ -z "$DRY_RUN" ] || return 0
+		"$RK_SCRIPTS_DIR/check-power-domain.sh"
+		"$RK_SCRIPTS_DIR/check-security.sh" kernel dts
 
-			"$RK_SCRIPTS_DIR/check-power-domain.sh"
-			"$RK_SCRIPTS_DIR/check-security.sh" kernel dts
+		if [ "$RK_WIFIBT" ] &&
+			! grep -wq wireless-bluetooth "$RK_KERNEL_DTB"; then
+			error "Missing wireless-bluetooth in $RK_KERNEL_DTS!"
+		fi
+		;;
+	modules)
+		if [ -e $LIB_MODULES_DIR ]; then
+				rm -rf $LIB_MODULES_DIR
+		fi
+		mkdir -p $LIB_MODULES_DIR
 
-			if [ "$RK_WIFIBT" ] && \
-				! grep -wq wireless-bluetooth "$RK_KERNEL_DTB"; then
-				error "Missing wireless-bluetooth in $RK_KERNEL_DTS!"
-			fi
-			;;
-		modules) run_command $KMAKE modules ;;
+		run_command $KMAKE modules
+		run_command $KMAKE modules_install INSTALL_MOD_PATH=$LIB_MODULES_DIR
+		;;
 	esac
 }
 
-build_recovery_kernel()
-{
+build_recovery_kernel() {
 	check_config RK_KERNEL || false
 
 	if [ "$DRY_RUN" ]; then
@@ -138,8 +144,7 @@ build_recovery_kernel()
 
 # Hooks
 
-usage_hook()
-{
+usage_hook() {
 	for k in $KERNELS; do
 		echo -e "$k[:cmds]               \tbuild kernel ${k#kernel-}"
 	done
@@ -154,8 +159,7 @@ usage_hook()
 	echo -e "kmake[:<arg1>:<arg2>]            \talias of kernel-make"
 }
 
-clean_hook()
-{
+clean_hook() {
 	[ ! -d kernel ] || make -C kernel distclean
 
 	rm -rf "$RK_OUTDIR/recovery-*"
@@ -164,41 +168,42 @@ clean_hook()
 }
 
 INIT_CMDS="default $KERNELS"
-init_hook()
-{
-	load_config RK_KERNEL_CFG
-	check_config RK_KERNEL_CFG &>/dev/null || return 0
+init_hook() {
+	if [ -z "${RK_KERNEL_FIREFLY}" ]; then
+		load_config RK_KERNEL_CFG
+		check_config RK_KERNEL_CFG &>/dev/null || return 0
 
-	# Priority: cmdline > env > last selected > preferred > current symlink
-	if echo $1 | grep -q "^kernel-"; then
-		export RK_KERNEL_VERSION=${1#kernel-}
-		notice "Using kernel version($RK_KERNEL_VERSION) from cmdline"
-	elif [ "$RK_KERNEL_VERSION" ]; then
-		export RK_KERNEL_VERSION=${RK_KERNEL_VERSION//\"/}
-		notice "Using kernel version($RK_KERNEL_VERSION) from environment"
+		# Priority: cmdline > env > last selected > preferred > current symlink
+		if echo $1 | grep -q "^kernel-"; then
+			export RK_KERNEL_VERSION=${1#kernel-}
+			notice "Using kernel version($RK_KERNEL_VERSION) from cmdline"
+		elif [ "$RK_KERNEL_VERSION" ]; then
+			export RK_KERNEL_VERSION=${RK_KERNEL_VERSION//\"/}
+			notice "Using kernel version($RK_KERNEL_VERSION) from environment"
+		fi
+
+		load_config RK_KERNEL_PREFERRED
+
+		local KERNEL_LAST="$(cat "$RK_OUTDIR/.kernel" 2>/dev/null || true)"
+		local KERNEL_CURRENT="$(kernel_version)"
+
+		# Fallback to last
+		RK_KERNEL_VERSION=${RK_KERNEL_VERSION:-$KERNEL_LAST}
+
+		# Fallback to preferred
+		RK_KERNEL_VERSION=${RK_KERNEL_VERSION:-$RK_KERNEL_PREFERRED}
+
+		# Fallback to current
+		RK_KERNEL_VERSION=${RK_KERNEL_VERSION:-$KERNEL_CURRENT}
+
+		# Fallback to 5.10
+		RK_KERNEL_VERSION=${RK_KERNEL_VERSION:-5.10}
+
+		# Save the selected version
+		echo "$RK_KERNEL_VERSION" >"$RK_OUTDIR/.kernel"
+
+		[ "$RK_KERNEL_VERSION" != "$KERNEL_CURRENT" ] || return 0
 	fi
-
-	load_config RK_KERNEL_PREFERRED
-
-	local KERNEL_LAST="$(cat "$RK_OUTDIR/.kernel" 2>/dev/null || true)"
-	local KERNEL_CURRENT="$(kernel_version)"
-
-	# Fallback to last
-	RK_KERNEL_VERSION=${RK_KERNEL_VERSION:-$KERNEL_LAST}
-
-	# Fallback to preferred
-	RK_KERNEL_VERSION=${RK_KERNEL_VERSION:-$RK_KERNEL_PREFERRED}
-
-	# Fallback to current
-	RK_KERNEL_VERSION=${RK_KERNEL_VERSION:-$KERNEL_CURRENT}
-
-	# Fallback to 5.10
-	RK_KERNEL_VERSION=${RK_KERNEL_VERSION:-5.10}
-
-	# Save the selected version
-	echo "$RK_KERNEL_VERSION" > "$RK_OUTDIR/.kernel"
-
-	[ "$RK_KERNEL_VERSION" != "$KERNEL_CURRENT" ] || return 0
 
 	# Update kernel
 	KERNEL_DIR=kernel-$RK_KERNEL_VERSION
@@ -213,8 +218,7 @@ init_hook()
 }
 
 PRE_BUILD_CMDS="kernel-config kconfig kernel-make kmake"
-pre_build_hook()
-{
+pre_build_hook() {
 	check_config RK_KERNEL RK_KERNEL_CFG || false
 	source "$RK_SCRIPTS_DIR/kernel-helper"
 
@@ -223,26 +227,26 @@ pre_build_hook()
 	echo
 
 	case "$1" in
-		kernel-make | kmake)
-			shift
-			[ "$1" != cmds ] || shift
+	kernel-make | kmake)
+		shift
+		[ "$1" != cmds ] || shift
 
-			if [ "$DRY_RUN" ]; then
-				notice "Commands of building ${@:-stuff}:"
-			else
-				message "=========================================="
-				message "          Start building $@"
-				message "=========================================="
-			fi
+		if [ "$DRY_RUN" ]; then
+			notice "Commands of building ${@:-stuff}:"
+		else
+			message "=========================================="
+			message "          Start building $@"
+			message "=========================================="
+		fi
 
-			if [ ! -r kernel/.config ]; then
-				make_kernel_config
-			fi
-			run_command $KMAKE $@
-			;;
-		kernel-config | kconfig)
-			do_build $@
-			;;
+		if [ ! -r kernel/.config ]; then
+			make_kernel_config
+		fi
+		run_command $KMAKE $@
+		;;
+	kernel-config | kconfig)
+		do_build $@
+		;;
 	esac
 
 	if [ -z "$DRY_RUN" ]; then
@@ -250,14 +254,12 @@ pre_build_hook()
 	fi
 }
 
-pre_build_hook_dry()
-{
+pre_build_hook_dry() {
 	DRY_RUN=1 pre_build_hook $@
 }
 
 BUILD_CMDS="$KERNELS kernel recovery-kernel modules"
-build_hook()
-{
+build_hook() {
 	check_config RK_KERNEL RK_KERNEL_CFG || false
 	source "$RK_SCRIPTS_DIR/kernel-helper"
 
@@ -266,26 +268,24 @@ build_hook()
 	echo
 
 	case "$1" in
-		recovery-kernel) build_recovery_kernel $@ ;;
-		kernel-*)
-			if [ "$RK_KERNEL_VERSION" != "${1#kernel-}" ]; then
-				warning "Kernel version ${1#kernel-} ignored"
-			fi
-			;&
-		*) do_build $@ ;;
+	recovery-kernel) build_recovery_kernel $@ ;;
+	kernel-*)
+		if [ "$RK_KERNEL_VERSION" != "${1#kernel-}" ]; then
+			warning "Kernel version ${1#kernel-} ignored"
+		fi
+		;&
+	*) do_build $@ ;;
 	esac
 
 	finish_build build_$1
 }
 
-build_hook_dry()
-{
+build_hook_dry() {
 	DRY_RUN=1 build_hook $@
 }
 
 POST_BUILD_CMDS="linux-headers"
-post_build_hook()
-{
+post_build_hook() {
 	check_config RK_KERNEL RK_KERNEL_CFG || false
 	source "$RK_SCRIPTS_DIR/kernel-helper"
 
@@ -309,7 +309,7 @@ post_build_hook()
 	run_command $KMAKE $RK_KERNEL_IMG_NAME
 
 	# Packing headers
-	cat << EOF > "$HEADER_FILES_SCRIPT"
+	cat <<EOF >"$HEADER_FILES_SCRIPT"
 {
 	# Based on kernel/scripts/package/builddeb
 	find . arch/$RK_KERNEL_ARCH -maxdepth 1 -name Makefile\*
@@ -332,12 +332,12 @@ EOF
 
 	# Packing kbuild
 	case "$RK_KERNEL_KBUILD_ARCH" in
-		host) run_command tar -uf "$OUTPUT_FILE" scripts tools ;;
-		*)
-			run_command cd "$RK_KBUILD_DIR/$RK_KERNEL_KBUILD_ARCH"
-			run_command cd "linux-kbuild-$RK_KERNEL_VERSION_RAW"
-			run_command tar -uf "$OUTPUT_FILE" .
-			;;
+	host) run_command tar -uf "$OUTPUT_FILE" scripts tools ;;
+	*)
+		run_command cd "$RK_KBUILD_DIR/$RK_KERNEL_KBUILD_ARCH"
+		run_command cd "linux-kbuild-$RK_KERNEL_VERSION_RAW"
+		run_command tar -uf "$OUTPUT_FILE" .
+		;;
 	esac
 
 	run_command cd "$RK_SDK_DIR"
@@ -347,14 +347,14 @@ EOF
 	[ -z "$DRY_RUN" ] || return 0
 
 	case "$RK_KERNEL_KBUILD_ARCH" in
-		host)
-			if [ $(uname -m) = x86_64 ]; then
-				DEBIAN_ARCH=amd64
-			else
-				return 0
-			fi
-			;;
-		*) DEBIAN_ARCH="$RK_KERNEL_KBUILD_ARCH" ;;
+	host)
+		if [ $(uname -m) = x86_64 ]; then
+			DEBIAN_ARCH=amd64
+		else
+			return 0
+		fi
+		;;
+	*) DEBIAN_ARCH="$RK_KERNEL_KBUILD_ARCH" ;;
 	esac
 
 	# Packing .deb package
@@ -368,7 +368,7 @@ EOF
 
 	message "Unpacking $OUTPUT_FILE ..."
 	tar xf "$OUTPUT_FILE" -C "$DEBIAN_KBUILD_DIR"
-	cat << EOF > "$DEBIAN_CONTROL"
+	cat <<EOF >"$DEBIAN_CONTROL"
 Package: $DEBIAN_PKG
 Source: linux-rockchip ($RK_KERNEL_VERSION_RAW)
 Version: $RK_KERNEL_VERSION_RAW-rockchip
@@ -391,19 +391,18 @@ EOF
 	rm -rf "$TEMP_DIR"
 }
 
-post_build_hook_dry()
-{
+post_build_hook_dry() {
 	DRY_RUN=1 post_build_hook $@
 }
 
 source "${RK_BUILD_HELPER:-$(dirname "$(realpath "$0")")/../build-hooks/build-helper}"
 
 case "${1:-kernel}" in
-	kernel-config | kconfig | kernel-make | kmake) pre_build_hook $@ ;;
-	kernel* | recovery-kernel | modules)
-		init_hook $@
-		build_hook ${@:-kernel}
-		;;
-	linux-headers) post_build_hook $@ ;;
-	*) usage ;;
+kernel-config | kconfig | kernel-make | kmake) pre_build_hook $@ ;;
+kernel* | recovery-kernel | modules)
+	init_hook $@
+	build_hook ${@:-kernel}
+	;;
+linux-headers) post_build_hook $@ ;;
+*) usage ;;
 esac

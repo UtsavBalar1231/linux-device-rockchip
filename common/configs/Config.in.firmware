@@ -56,4 +56,7 @@ endmenuconfig # Misc
 config RK_USE_FIT_IMG
 	bool "use FIT (Flattened Image Tree) image"
 
+config RK_KERNEL_FIREFLY
+	bool "use Firefly kernel"
+
 endmenu # Firmware
